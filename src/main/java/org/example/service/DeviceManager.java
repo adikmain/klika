@@ -7,38 +7,33 @@ import org.example.dto.MetricsDto;
 import org.example.entity.Device;
 import org.example.entity.Metric;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class DeviceManager {
     DeviceClient deviceClient;
     MetricClient metricClient;
 
     public List<DeviceDetailsDto> getDevicesDetails(Set<UUID> ids) {
-        List<DeviceDetailsDto> detailsDto = new ArrayList<>();
-
         List<Device> devices = deviceClient.getAllByIdIn(ids);
+        List<Metric> metrics = metricClient.getAllByDeviceIdIn(ids);
 
-        devices.forEach(device -> {
-            List<Metric> deviceMetrics = metricClient
-                    .getAllByDeviceIdIn(List.of(device.getId()));
+        var metricsByDeviceId = metrics.stream().collect(Collectors.groupingBy(Metric::getDeviceId));
 
-            List<Metric> onlyLastMetrics = deviceMetrics
-                    .stream()
-                    .filter(metric -> metric.getTime().isAfter(device.getLastRebootTime()) || metric.getTime().isEqual(device.getLastRebootTime()))
-                    .toList();
+        return devices
+                .stream()
+                .map(device -> toDeviceDetailsDTO(device, filterLastMetrics(metricsByDeviceId.get(device.getId()), device)))
+                .collect(Collectors.toList());
+    }
 
-            List<MetricsDto> lastMetricsDTO = onlyLastMetrics
-                    .stream()
-                    .map(this::toMetricDTO)
-                    .toList();
-
-            detailsDto.add(toDeviceDetailsDTO(device, lastMetricsDTO));
-        });
-
-        return detailsDto;
+    private List<MetricsDto> filterLastMetrics(List<Metric> metrics, Device device) {
+        return metrics
+                .stream()
+                .filter(metric -> !metric.getTime().isBefore(device.getLastRebootTime()))
+                .map(this::toMetricDTO)
+                .collect(Collectors.toList());
     }
 
     private DeviceDetailsDto toDeviceDetailsDTO(Device device, List<MetricsDto> lastModifiedMetrics) {
